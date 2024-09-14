@@ -1,0 +1,448 @@
+const mongoose = required("mongoose")
+const bcrypt = require("bcryptjs")
+
+const userSchema = new mongoose.Schema({
+    username : {type : String, required : true , unique : true},
+    password : {type : String, required : true }
+}, {timestamps : true});
+
+
+userSchema.methods.hashPassword = async function(password) {
+    const salt = await bcrypt.genSalt(10);
+    return await bcrypt.hash(password, salt);
+}
+userSchema.methods.comparePassword = async function(password){
+   
+    return await bcrypt.compare(password, this.password);
+}
+
+
+moduel.exports = mongoose.model("User", userSchema);
+
+
+//create file File.js schema in models folder 
+
+const mongoose = required("mongoose");
+const fileSchema = new mongoose.Schema({
+    user: {type : mongoose.Schema.Types.ObjectId, required : true , ref:"User"},
+    filename : {type : String, required : true },
+    filepath : {type : String, required : true },
+    code : {type : String, required : true },
+    createdAt : {type :Date, default: Date.now}
+}, {timestamps : true});
+
+moduel.exports = mongoose.model("File", fileSchema);
+
+
+//create a routes folder and into that create auth.js filte for the 
+//authentiation
+
+const express = require("express");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User")
+const router = express.Router();
+
+router.post("/register", async (req, res)=> { 
+    const {username, password} = req.body;
+    const isUserExist= await User.findOne({username});
+    if(isUserExist){
+        return res.status(400).send("user already Exists Please Login");
+        
+    }
+  const user = new User({username});
+  user.password = await user.hashPassword(password)
+  await user.save()
+  res.status(201).send("user registered")))
+
+router.post("/login", async (req, res)=> {
+    const {username, password} = req.body;
+    const user = await User.findOne({username});
+    if(!user || !(await user.comparePassword(password))){
+        
+        return res.status(400).send("INvalid Creadentials");
+        
+    }
+    const token = jwt.sign({id : user._id}, process.env.JWT_SECRET,
+    {expresIn: "1h"})
+ 
+  res.json(token);
+})
+
+module.exports = router
+
+// create file.js file in routes folder
+
+const express = require("express");
+const multer = require("multer");
+const jwt = require("jsonwebtoken");
+const fs = require("fs-extra");
+const path = require("path");
+const File = require("../models/File")
+const router = express.Router();
+
+const storage = multer.diskStorage({
+    destination : (req, file, cb)=> {
+        cb(null, "uploads/");
+        
+    }
+    filename: (req, file, cb)=> {
+        cb(null, `${Date.now()}-${file.originalname}`);
+    }
+})
+
+const upload = multer({storage})
+
+
+//middalware fir authentication
+
+function authenticateToken(req, res,next){
+    const token = req.headers["authorizaion"]
+    if(!token) return res.sendStatus(401)
+    jwt.verify(token.split(" ")[1], process.env.JWT_SECRET, (err, user)=> {
+        if(err) return res.sendStatus(403)
+        req.user= user;
+        next()
+    })
+    
+}
+
+//code for uploading file
+router.post("/upload", authenticateToken,upload.single("file"), 
+async (req, res)=> {
+    const uniqueCode= Math.floor(100000+Math.floor.random()*900000)
+    .toString();
+    const newaFile = new File({
+        user : req.user.id,
+        filename = req.file.filename,
+        filepath : req.file.path,
+        code ; uniqueCode
+    })
+    await newFile.save();
+    res.json({message :"File uploaded", code: uniqueCode})
+    
+} )
+
+//get Users.files
+
+ router.get("/files", authenticateToken, async (req, res)=> {
+     const files = await File.find({user: req.user.id})
+     res.json(files);
+ })
+
+
+// to delete files
+
+router.delete("/file/:id", authenticateToken, async (req, res)=> {
+    const file = await File.findById(req.params.id)
+    if(!file || file.user.toString() !== req.user.id){
+    return res.status(403).send("Acess Denided");
+    }
+    await fs.remove(path.resolve(file,filepath));
+    await file.remove();
+    res.send("File Deleted")
+})
+//for downloading the file
+router.post("/download/:id",authenticateToken, async (req,res)=>{
+    const {code}= req.body;
+    const file= await File.findById(req.params.id)
+    if(!file||file.code !== code){
+        return res.status(403).send("Invalid Code")
+    }
+    res.download(path.resolve(file.filepath));
+} )
+
+module.exports = router
+
+// Mai file index.js here 
+
+const express = require("express");
+const dotenv = require("dotenv");
+const mongoose = require("mongoose");
+const authRoutes = require("./routes/auth");
+const fileRoutes = require("./routes/file");
+dotenv.config();
+
+const app = express()
+app.use(express.json());
+
+mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser : true,
+    useUnifiedTopology: true,
+    
+}).then(()=> console.log("MongoDB Connected Success"))
+.catch(err=> console.log(err));
+
+app.use("/auth",authRoutes);
+app.use("/files", fileRoutes)
+
+const PORT = process.env.PORT || 5000
+app.listen(PORT, console.log(`server running on port ${PORT}`))
+
+//.env file 
+MONGO_URI=mongodb://localhost:27017/mobigictask
+JWT_SECRET=secret_key
+
+
+
+//frontend code using react js 
+
+// Main file App.js
+
+import React from "react"
+import {BrowserRouter as Router , Route, Routes} from "react-router-dom"
+import Register  from "./components/Register"
+import Login  from "./components/Login"
+import UploadFile  from "./components/UploadFile"
+import FileList  from "./components/FileList"
+
+fuction App(){
+    return (
+    <Router>
+    <div>
+    <nav>
+    <a href="/register">Register</a>
+    <a href="/login">Login</a>
+    <a href="/upload">Upload File</a>
+    <a href="/files">Your Files</a>
+    </nav>
+    <Routes>
+    <Route path="/register" element={<Register /> } />
+    <Route path="/login" element={<Login /> } />
+    <Route path="/upload" element={<UploadFile /> } />
+    <Route path="/files" element={<FileList /> } />
+    </Routes>
+    </div>
+    </Router>)
+}
+
+export default App
+
+// in src folder create components folder and that create Register.js file
+
+
+import React, {useState} from "react"
+import axios from "axios"
+
+function Register(){
+    const [username , setUsername ]= useState("")
+    const [password , setPassword ]= useState("")
+    
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+        try{
+            await axios.post("/auth/register", {username, password})
+            alert("User Registration SuccessFull!")
+            
+        }catch(err){
+            console.error(err)
+            alert("Error during registration")
+            
+        }
+    }
+    return <>
+    <form onSubmit={handleSubmit}>
+    <h2>Register</h2>
+    <input 
+    type="text"
+    placeholder="Username"
+    value={username}
+    onChange={e => setUsername(e.target.value)}
+    />
+    <input 
+    type="password"
+    placeholder="Password"
+    value={password}
+    onChange={e => setPassword(e.target.value)}
+    />
+    <button type="submit">Register</button>
+    </form>
+    </>
+}
+
+export default Register;
+
+
+//Make Login component 
+import React, {useState} from "react"
+import axios from "axios"
+
+function Login(){
+    const [username , setUsername ]= useState("")
+    const [password , setPassword ]= useState("")
+    
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+        try{
+            await axios.post("/auth/login", {username, password})
+            localStorage.setItem("token", res.data.token)
+            alert("User Login SuccessFull!")
+            
+        }catch(err){
+            console.error(err)
+            alert("INvalid Credentials")
+            
+        }
+    }
+    return <>
+    <form onSubmit={handleSubmit}>
+    <h2>Login</h2>
+    <input 
+    type="text"
+    placeholder="Username"
+    value={username}
+    onChange={e => setUsername(e.target.value)}
+    />
+    <input 
+    type="password"
+    placeholder="Password"
+    value={password}
+    onChange={e => setPassword(e.target.value)}
+    />
+    <button type="submit">Login</button>
+    </form>
+    </>
+}
+
+export default Login;
+
+
+
+//create compeonets UploadFile
+
+import React, {useState} from "react"
+import axios from "axios"
+
+function UploadFile(){
+    const [file , setFile ]= useState(null)
+   
+    
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+        const formData = new FormData();
+        formData.append("file", file);
+        try{
+            const token = localStorage.getItem("token")
+            
+       const res =     await axios.post("/auth/upload", formData, {
+           headers : {
+               "Content-type":"multipart/form-data",
+               Authorization :`Bearer ${token}`
+           }
+       })
+            alert(`File Upload  SuccessFull! Your code : ${res.data.code}`)
+            
+        }catch(err){
+            console.error(err)
+            alert("Error during file upload")
+            
+        }
+    }
+    return <>
+    <form onSubmit={handleSubmit}>
+    <h2>Upload File</h2>
+    <input 
+   
+    onChange={e => setFile(e.target.files[0])}
+    />
+   
+    <button type="submit">Upload</button>
+    </form>
+    </>
+}
+
+export default UploadFile;
+
+
+// create compenetns filelist 
+import React, {useState, useEffect} from "react"
+import axios from "axios"
+
+function FileList(){
+    const [files , setFiles ]= useState([])
+    const [code , setCode ]= useState("")
+    
+    useEffect(()=> {
+        const fetchFiles = async ()=> {
+            try{
+                const token = localStorage.getItem("token")
+                const res = await axios.get("/files/files", {
+                    headers: {Authorization : `Bearer ${token}`}
+                })
+                setFiles(res.data)
+            }catch(err){
+                console.error(err)
+                alert("error fetching files.")
+            }
+        }
+        fetchFiles()
+    },[])
+    const handleDelete= async (id)=> {
+        try{
+            const token = localStorage.getItem("token")
+            await axios.delete(`/files/files/${id}`,{
+                    headers: {Authorization : `Bearer ${token}`}
+                })
+                setFiles(files.filter((file)=> file._id !== id))
+                alert("file deleted")
+        }catch(err){
+            console.error(err)
+            alert("error, deletiong file")
+            
+        }
+    }
+   
+   const handleDownload = async (id)=> {
+       try{
+           const token = localStorage.getItem("token")
+           const res = await axios.post(`/files/files/${id}`, {code},{
+                    headers: {Authorization : `Bearer ${token}`}
+                })
+                window.location.href = res.request.responseURL;
+                
+       }catch(err){
+           console.error(err)
+           alert("error Download files")
+       }
+   }
+   
+    return (
+        <div>
+   
+    <h2>Your Files</h2>
+   <ul>
+   {
+       files.map((file)=> (
+       <li key={file._id}>
+       {file.filename}
+       <button onClick= {()=> handleDelete(file._id)}>Delete</button>
+        <input type="text" placeholder="Enter 6 Digit Code"
+             onChange={e => setCode(e.target.value)}
+    />
+    <button onClick={()=> handleDownLoad(file._id)}>Download</button>
+       </li>
+       ))
+   }
+   </ul>
+   
+   
+    </div>)
+   
+}
+
+export default FileList;
+
+//frontend dotenv file
+
+REACT_APP_API_URL=http://localhost:5000
+
+/for axios call 
+
+axios.post(`${process.env.REACT_APP_API_URL}/auth/register`, 
+{username, password})
+
+
+//this is the all code about the given task
+
+
+
